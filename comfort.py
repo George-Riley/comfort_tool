@@ -200,5 +200,10 @@ def phs():
     return render_template("phs.html")
 
 
+@app.route("/ha")
+def ha():
+    return render_template("ha.html")
+
+
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
