@@ -1,0 +1,414 @@
+{% extends "index.html" %} {% block content %}
+
+<script>
+  // highlight navigation bar button
+  $("a.active").removeClass("active");
+  $("#nav_a_ha").addClass("active");
+</script>
+
+<div class="container my-4 px-0">
+  <div class="jumbotron">
+    <h1>Home Assistant Template Sensors</h1>
+    <p class="lead">
+      Generate <a href="https://www.home-assistant.io/" target="_blank">Home Assistant</a>
+      YAML for <a href="https://www.home-assistant.io/integrations/template/" target="_blank">template sensors</a>
+      that calculate thermal comfort indexes (PMV, PPD) and relative humidity
+      <strong>entirely offline</strong> inside Home Assistant &mdash;
+      no internet connection or external API needed.
+    </p>
+    <hr class="my-4" />
+
+    <div class="row">
+      <!-- Left column: inputs -->
+      <div class="col-lg-5">
+        <h4>PMV &amp; PPD</h4>
+        <p class="text-muted small">
+          Computed using the
+          <a href="https://en.wikipedia.org/wiki/Thermal_comfort#PMV/PPD_method" target="_blank">Fanger (ISO&nbsp;7730)</a>
+          formula, implemented as a Jinja2 template that runs entirely inside
+          Home Assistant.
+        </p>
+
+        <div class="form-group">
+          <label for="temp_entity">Air temperature entity</label>
+          <input type="text" class="form-control form-control-sm"
+                 id="temp_entity" placeholder="sensor.room_temperature"
+                 oninput="generateYAML()" />
+          <small class="form-text text-muted">Entity ID providing air temperature in &deg;C.</small>
+        </div>
+
+        <div class="form-group">
+          <div class="form-check mb-1">
+            <input class="form-check-input" type="checkbox" id="mrt_same_as_temp"
+                   checked onchange="toggleMRT(); generateYAML();" />
+            <label class="form-check-label" for="mrt_same_as_temp">
+              Mean radiant temperature = air temperature
+            </label>
+          </div>
+          <div id="mrt_entity_group" style="display:none;">
+            <input type="text" class="form-control form-control-sm"
+                   id="mrt_entity" placeholder="sensor.room_mrt"
+                   oninput="generateYAML()" />
+            <small class="form-text text-muted">Entity ID providing MRT in &deg;C.</small>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="humidity_entity">Relative humidity entity</label>
+          <input type="text" class="form-control form-control-sm"
+                 id="humidity_entity" placeholder="sensor.room_humidity"
+                 oninput="generateYAML()" />
+          <small class="form-text text-muted">Entity ID providing relative humidity in %.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Air speed</label>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="air_speed_type"
+                   id="air_speed_const_radio" value="const" checked
+                   onchange="toggleAirSpeed(); generateYAML();" />
+            <label class="form-check-label" for="air_speed_const_radio">Constant value</label>
+          </div>
+          <div class="form-check mb-1">
+            <input class="form-check-input" type="radio" name="air_speed_type"
+                   id="air_speed_entity_radio" value="entity"
+                   onchange="toggleAirSpeed(); generateYAML();" />
+            <label class="form-check-label" for="air_speed_entity_radio">From a sensor entity</label>
+          </div>
+          <div id="air_speed_const_group">
+            <div class="input-group input-group-sm">
+              <input type="number" class="form-control form-control-sm"
+                     id="air_speed_const" value="0.1" min="0" step="0.05"
+                     oninput="generateYAML()" />
+              <div class="input-group-append">
+                <span class="input-group-text">m/s</span>
+              </div>
+            </div>
+          </div>
+          <div id="air_speed_entity_group" style="display:none;">
+            <input type="text" class="form-control form-control-sm"
+                   id="air_speed_entity" placeholder="sensor.room_air_speed"
+                   oninput="generateYAML()" />
+            <small class="form-text text-muted">Entity ID providing air speed in m/s.</small>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-6">
+            <div class="form-group">
+              <label for="met_input">Metabolic rate</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control form-control-sm"
+                       id="met_input" value="1.2" min="0.8" max="4.0" step="0.1"
+                       oninput="generateYAML()" />
+                <div class="input-group-append">
+                  <span class="input-group-text">met</span>
+                </div>
+              </div>
+              <small class="form-text text-muted">1.0 seated, 1.2 office, 2.0 walking.</small>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="form-group">
+              <label for="clo_input">Clothing insulation</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control form-control-sm"
+                       id="clo_input" value="0.5" min="0" max="2.0" step="0.05"
+                       oninput="generateYAML()" />
+                <div class="input-group-append">
+                  <span class="input-group-text">clo</span>
+                </div>
+              </div>
+              <small class="form-text text-muted">0.5 summer, 1.0 winter.</small>
+            </div>
+          </div>
+        </div>
+
+        <hr class="my-3" />
+
+        <h4>Relative Humidity
+          <small class="text-muted" style="font-size:0.75rem;">(optional)</small>
+        </h4>
+        <p class="text-muted small">
+          If you only have dry-bulb and dew-point (or wet-bulb) temperatures, this
+          generates a sensor using the
+          <a href="https://en.wikipedia.org/wiki/Clausius%E2%80%93Clapeyron_relation#Meteorology_and_climatology" target="_blank">Magnus formula</a>.
+        </p>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="rh_section_toggle"
+                 onchange="toggleRHSection(); generateYAML();" />
+          <label class="form-check-label" for="rh_section_toggle">
+            Generate relative humidity sensor
+          </label>
+        </div>
+
+        <div id="rh_section" style="display:none;">
+          <div class="form-group">
+            <label for="rh_drybulb_entity">Dry-bulb temperature entity</label>
+            <input type="text" class="form-control form-control-sm"
+                   id="rh_drybulb_entity" placeholder="sensor.dry_bulb_temperature"
+                   oninput="generateYAML()" />
+            <small class="form-text text-muted">Entity ID in &deg;C.</small>
+          </div>
+          <div class="form-group">
+            <label>Second input</label>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="rh_input_type"
+                     id="rh_dew_radio" value="dewpoint" checked
+                     onchange="generateYAML()" />
+              <label class="form-check-label" for="rh_dew_radio">Dew-point temperature</label>
+            </div>
+            <div class="form-check mb-1">
+              <input class="form-check-input" type="radio" name="rh_input_type"
+                     id="rh_wb_radio" value="wetbulb"
+                     onchange="generateYAML()" />
+              <label class="form-check-label" for="rh_wb_radio">Wet-bulb temperature</label>
+            </div>
+            <input type="text" class="form-control form-control-sm"
+                   id="rh_second_entity" placeholder="sensor.dew_point"
+                   oninput="generateYAML()" />
+            <small class="form-text text-muted">Entity ID in &deg;C.</small>
+          </div>
+        </div>
+      </div><!-- /left col -->
+
+      <!-- Right column: YAML output -->
+      <div class="col-lg-7">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="mb-0">Generated YAML</h4>
+          <button class="btn btn-sm btn-outline-primary" id="copy_btn"
+                  onclick="copyYAML()">
+            <i class="far fa-copy"></i> Copy
+          </button>
+        </div>
+        <textarea id="yaml_output" class="form-control" rows="32"
+                  style="font-family:monospace;font-size:0.75rem;background:#f8f9fa;"
+                  readonly></textarea>
+        <small class="form-text text-muted mt-1">
+          Add the generated YAML to your Home Assistant
+          <code>configuration.yaml</code> (or a
+          <a href="https://www.home-assistant.io/docs/configuration/splitting_configuration/" target="_blank">package file</a>),
+          then restart Home Assistant.
+        </small>
+      </div>
+    </div><!-- /row -->
+
+    <hr class="my-4" />
+    <h4>How it works</h4>
+    <div class="row">
+      <div class="col-md-6">
+        <h6>PMV &amp; PPD</h6>
+        <p>
+          Both sensors are computed using the
+          <a href="https://www.iso.org/standard/39155.html" target="_blank">ISO&nbsp;7730</a>
+          Fanger PMV formula implemented directly in Home Assistant's Jinja2
+          template engine. The clothing surface temperature is found by
+          fixed-point iteration (100&nbsp;steps) using Jinja2's
+          <code>namespace</code> pattern for mutable loop variables.
+          No network request is made.
+        </p>
+        <ul>
+          <li><strong>PMV</strong> &mdash; Predicted Mean Vote, &minus;3 (cold) to +3 (hot);
+              ASHRAE-55 comfort zone is &minus;0.5 to +0.5.</li>
+          <li><strong>PPD</strong> &mdash; Predicted Percentage Dissatisfied (%);
+              LEED compliance target is &lt;&nbsp;10&nbsp;%.</li>
+        </ul>
+      </div>
+      <div class="col-md-6">
+        <h6>Relative Humidity</h6>
+        <p>
+          Derived from dry-bulb + dew-point using the Magnus formula, or from
+          dry-bulb + wet-bulb using Sprung&rsquo;s psychrometer equation.
+          Both run as Jinja2 template sensors &mdash; no external service needed.
+        </p>
+      </div>
+    </div>
+  </div><!-- /jumbotron -->
+</div>
+
+<script>
+{% raw %}
+  function toggleMRT() {
+    var chk = document.getElementById("mrt_same_as_temp").checked;
+    document.getElementById("mrt_entity_group").style.display = chk ? "none" : "block";
+  }
+
+  function toggleAirSpeed() {
+    var isConst = document.getElementById("air_speed_const_radio").checked;
+    document.getElementById("air_speed_const_group").style.display  = isConst ? "block" : "none";
+    document.getElementById("air_speed_entity_group").style.display = isConst ? "none"  : "block";
+  }
+
+  function toggleRHSection() {
+    var chk = document.getElementById("rh_section_toggle").checked;
+    document.getElementById("rh_section").style.display = chk ? "block" : "none";
+  }
+
+  /** Prepend `n` spaces to every non-empty line */
+  function indent(s, n) {
+    var pad = " ".repeat(n);
+    return s.split("\n").map(function (l) { return l.length ? pad + l : l; }).join("\n");
+  }
+
+  function generateYAML() {
+    var tempEnt = document.getElementById("temp_entity").value.trim()    || "sensor.air_temperature";
+    var mrtSame = document.getElementById("mrt_same_as_temp").checked;
+    var mrtEnt  = mrtSame ? tempEnt
+                          : (document.getElementById("mrt_entity").value.trim() || "sensor.mean_radiant_temperature");
+    var humEnt  = document.getElementById("humidity_entity").value.trim() || "sensor.relative_humidity";
+    var isConst = document.getElementById("air_speed_const_radio").checked;
+    var velConst= document.getElementById("air_speed_const").value.trim() || "0.1";
+    var velEnt  = document.getElementById("air_speed_entity").value.trim()|| "sensor.air_speed";
+    var met     = document.getElementById("met_input").value.trim()       || "1.2";
+    var clo     = document.getElementById("clo_input").value.trim()       || "0.5";
+
+    /* air speed: literal constant or states() expression */
+    var velExpr = isConst ? velConst : "states('" + velEnt + "') | float(0)";
+
+    /* ------------------------------------------------------------------
+       PMV template sensor  –  Fanger ISO 7730, fully offline
+       ------------------------------------------------------------------ */
+    var pmvLines = [
+      "{% set ta  = states('" + tempEnt + "') | float(0) %}",
+      "{% set tr  = states('" + mrtEnt  + "') | float(0) %}",
+      "{% set vel = " + velExpr + " %}",
+      "{% set rh  = states('" + humEnt  + "') | float(0) %}",
+      "{% set met = " + met + " %}",
+      "{% set clo = " + clo + " %}",
+      "{% set pa  = rh * 10 * exp(16.6536 - 4030.183 / (ta + 235)) %}",
+      "{% set icl = 0.155 * clo %}",
+      "{% set m   = met * 58.15 %}",
+      "{% set mw  = m %}",
+      "{% set fcl = 1.05 + 0.645 * icl if icl > 0.078 else 1 + 1.29 * icl %}",
+      "{% set hcf = 12.1 * vel ** 0.5 %}",
+      "{% set taa = ta + 273 %}",
+      "{% set tra = tr + 273 %}",
+      "{% set p1  = icl * fcl %}",
+      "{% set p2  = p1 * 3.96 %}",
+      "{% set p3  = p1 * 100 %}",
+      "{% set p4  = p1 * taa %}",
+      "{% set p5  = 308.7 - 0.028 * mw + p2 * (tra / 100) ** 4 %}",
+      "{% set t_cla = taa + (35.5 - ta) / (3.5 * icl + 0.1) %}",
+      "{% set ns = namespace(xn = t_cla / 100, xf = t_cla / 50) %}",
+      /* 100 iterations: the bisection converges to within 0.00015 in <30 steps
+         for any realistic indoor temperature range; 100 is a safe upper bound. */
+      "{% for _ in range(100) %}",
+      "  {% set ns.xf = (ns.xf + ns.xn) / 2 %}",
+      "  {% set hcn = 2.38 * ((ns.xf * 100 - taa) | abs) ** 0.25 %}",
+      "  {% set hc  = [hcf, hcn] | max %}",
+      "  {% set ns.xn = (p5 + p4 * hc - p2 * ns.xf ** 4) / (100 + p3 * hc) %}",
+      "{% endfor %}",
+      "{% set tcl = 100 * ns.xn - 273 %}",
+      "{% set hcn = 2.38 * ((ns.xn * 100 - taa) | abs) ** 0.25 %}",
+      "{% set hc  = [hcf, hcn] | max %}",
+      "{% set hl1 = 3.05e-3 * (5733 - 6.99 * mw - pa) %}",
+      "{% set hl2 = 0.42 * (mw - 58.15) if mw > 58.15 else 0 %}",
+      "{% set hl3 = 1.7e-5 * m * (5867 - pa) %}",
+      "{% set hl4 = 0.0014 * m * (34 - ta) %}",
+      "{% set hl5 = 3.96 * fcl * (ns.xn ** 4 - (tra / 100) ** 4) %}",
+      "{% set hl6 = fcl * hc * (tcl - ta) %}",
+      "{% set ts  = 0.303 * exp(-0.036 * m) + 0.028 %}",
+      "{{ (ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)) | round(2) }}"
+    ];
+
+    /* ------------------------------------------------------------------
+       PPD template sensor  –  simple formula referencing sensor.pmv
+       ------------------------------------------------------------------ */
+    var ppdLines = [
+      "{% set pmv = states('sensor.pmv') | float(0) %}",
+      "{{ (100 - 95 * exp(-0.03353 * pmv ** 4 - 0.2179 * pmv ** 2)) | round(1) }}"
+    ];
+
+    var yaml =
+      "# CBE Thermal Comfort Tool – Home Assistant Template Sensors\n" +
+      "# All calculations run offline inside Home Assistant (Jinja2).\n" +
+      "# PMV/PPD: Fanger ISO 7730 formula.\n" +
+      "#\n" +
+      "# Add to configuration.yaml (or a package file) and restart HA.\n\n" +
+      "template:\n" +
+      "  - sensor:\n\n" +
+      "      - name: \"PMV\"\n" +
+      "        unique_id: comfort_tool_pmv\n" +
+      "        unit_of_measurement: \"\"\n" +
+      "        state_class: measurement\n" +
+      "        icon: \"mdi:thermometer\"\n" +
+      "        state: >\n" +
+      indent(pmvLines.join("\n"), 10) + "\n\n" +
+      "      - name: \"PPD\"\n" +
+      "        unique_id: comfort_tool_ppd\n" +
+      "        unit_of_measurement: \"%\"\n" +
+      "        state_class: measurement\n" +
+      "        icon: \"mdi:account-group\"\n" +
+      "        availability: \"{{ states('sensor.pmv') not in ['unknown', 'unavailable'] }}\"\n" +
+      "        state: >\n" +
+      indent(ppdLines.join("\n"), 10) + "\n";
+
+    /* optional RH sensor */
+    if (document.getElementById("rh_section_toggle").checked) {
+      var dryEnt  = document.getElementById("rh_drybulb_entity").value.trim() || "sensor.dry_bulb_temperature";
+      var secEnt  = document.getElementById("rh_second_entity").value.trim()  || "sensor.dew_point";
+      var isDew   = document.getElementById("rh_dew_radio").checked;
+
+      var rhLines;
+      var rhComment;
+      if (isDew) {
+        rhComment = "# Relative humidity from dry-bulb + dew-point (Magnus formula)";
+        rhLines = [
+          "{% set ta = states('" + dryEnt + "') | float(0) %}",
+          "{% set td = states('" + secEnt + "') | float(0) %}",
+          "{% set rh = 100 * exp(17.625 * td / (243.04 + td)) / exp(17.625 * ta / (243.04 + ta)) %}",
+          "{{ [[rh | round(1), 0] | max, 100] | min }}"
+        ];
+      } else {
+        rhComment = "# Relative humidity from dry-bulb + wet-bulb (Sprung's psychrometer formula)";
+        rhLines = [
+          "{% set ta = states('" + dryEnt + "') | float(0) %}",
+          "{% set tw = states('" + secEnt + "') | float(0) %}",
+          "{% set ew = 6.1078 * exp(17.2694 * tw / (tw + 237.29)) %}",
+          "{% set es = 6.1078 * exp(17.2694 * ta / (ta + 237.29)) %}",
+          "{% set e  = ew - 0.000799 * 1013.25 * (ta - tw) %}",
+          "{{ [[100 * e / es | round(1), 0] | max, 100] | min }}"
+        ];
+      }
+
+      yaml +=
+        "\n      " + rhComment + "\n" +
+        "      - name: \"Relative Humidity\"\n" +
+        "        unique_id: comfort_tool_rh\n" +
+        "        unit_of_measurement: \"%\"\n" +
+        "        state_class: measurement\n" +
+        "        icon: \"mdi:water-percent\"\n" +
+        "        state: >\n" +
+        indent(rhLines.join("\n"), 10) + "\n";
+    }
+
+    document.getElementById("yaml_output").value = yaml;
+  }
+
+  function copyYAML() {
+    var ta  = document.getElementById("yaml_output");
+    var btn = document.getElementById("copy_btn");
+    function ok() {
+      btn.textContent = "Copied!";
+      btn.classList.replace("btn-outline-primary", "btn-success");
+      setTimeout(function () {
+        btn.innerHTML = '<i class="far fa-copy"></i> Copy';
+        btn.classList.replace("btn-success", "btn-outline-primary");
+      }, 2000);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(ok).catch(function () {
+        /* Fallback for browsers that deny clipboard permission */
+        ta.select(); document.execCommand("copy"); ok();
+      });
+    } else {
+      /* Fallback for browsers without the Clipboard API */
+      ta.select(); document.execCommand("copy"); ok();
+    }
+  }
+
+  generateYAML();
+{% endraw %}
+</script>
+
+{% endblock %}
